@@ -1,0 +1,4 @@
+﻿timestamp,device_id,device_type,source_ip,event_type,temperature,status
+2026-11-06T10:00:00Z,DEV-001,Temperature Sensor,192.168.1.10,normal_reading,25.5,active
+2026-11-06T10:01:00Z,DEV-002,PLC,192.168.1.11,configuration_change,30.2,active
+2026-11-06T10:02:00Z,DEV-001,Temperature Sensor,192.168.1.10,unusual_activity,85.0,warning

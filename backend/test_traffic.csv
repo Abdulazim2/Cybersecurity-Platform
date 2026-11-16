@@ -1,0 +1,3 @@
+﻿timestamp,source_ip,destination_ip,protocol,source_port,destination_port,packet_count,bytes_transferred,duration
+2026-11-05,192.168.1.10,192.168.1.20,TCP,50000,443,100,15000,2.5
+2026-11-05,192.168.1.30,192.168.1.40,UDP,40000,53,50,8000,1.5

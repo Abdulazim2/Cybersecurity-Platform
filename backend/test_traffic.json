@@ -1,0 +1,16 @@
+﻿[
+  {
+    "timestamp": "2026-11-05",
+    "source_ip": "192.168.1.10",
+    "destination_ip": "192.168.1.20",
+    "protocol": "TCP",
+    "packet_count": 100
+  },
+  {
+    "timestamp": "2026-11-05",
+    "source_ip": "192.168.1.30",
+    "destination_ip": "192.168.1.40",
+    "protocol": "UDP",
+    "packet_count": 50
+  }
+]

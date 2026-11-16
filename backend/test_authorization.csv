@@ -1,0 +1,4 @@
+﻿timestamp,username,source_ip,action,resource,status,authentication_method
+2026-11-06T10:00:00Z,operator1,192.168.1.20,login,dashboard,success,password
+2026-11-06T10:01:00Z,operator2,192.168.1.21,delete,user_account,denied,password
+2026-11-06T10:02:00Z,operator1,192.168.1.20,access,system_logs,success,mfa

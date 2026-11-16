@@ -1,0 +1,3 @@
+﻿timestamp,source,level,message
+2026-11-05 10:00:00,Firewall,INFO,Connection accepted
+2026-11-05 10:05:00,Server,WARNING,Multiple failed login attempts

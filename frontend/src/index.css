@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f5f6f8;
+}
+/* Dark mode theme */
+html.dark body {
+  background: #111827 !important;
+  color: #E5E7EB !important;
+}
+
+html.dark [class*="bg-white"] {
+  background-color: #1F2937 !important;
+}
+
+html.dark [class*="bg-[#F4F6F8]"],
+html.dark [class*="bg-[#F5F7F8]"] {
+  background-color: #111827 !important;
+}
+
+html.dark [class*="bg-[#F0F4F6]"],
+html.dark [class*="bg-[#EFF4F6]"],
+html.dark [class*="bg-[#E8EEF2]"] {
+  background-color: #374151 !important;
+}
+
+html.dark [class*="text-[#263746]"],
+html.dark [class*="text-[#202B36]"],
+html.dark [class*="text-[#52616D]"],
+html.dark [class*="text-[#53616E]"],
+html.dark [class*="text-[#667482]"] {
+  color: #E5E7EB !important;
+}
+
+html.dark [class*="text-[#82909C]"],
+html.dark [class*="text-[#89949E]"],
+html.dark [class*="text-[#89939D]"],
+html.dark [class*="text-[#7C8995]"] {
+  color: #9CA3AF !important;
+}
+
+html.dark [class*="border-[#E5E9ED]"],
+html.dark [class*="border-[#E9EDF0]"],
+html.dark [class*="border-[#DDE3E8]"] {
+  border-color: #374151 !important;
+}
+
+html.dark input,
+html.dark select {
+  background-color: #374151 !important;
+  color: #F9FAFB !important;
+  border-color: #4B5563 !important;
+}

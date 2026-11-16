@@ -1,0 +1,76 @@
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+venv/
+.venv/
+env/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Node.js and frontend build
+node_modules/
+dist/
+build/
+
+# Editors and operating system
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+
+# Backups and archives
+*.bak
+*.zip
+
+
+# Local setup and database administration scripts
+backend/create_admin.py
+backend/create_company2_admin.py
+backend/create_test_company.py
+backend/set_admin.py
+backend/set_test_password.py
+backend/check_test_user.py
+backend/check_predictions_table.py
+backend/test_users.py
+backend/app/set_test_password.py
+
+# Database backups and dumps
+*.dump
+
+# Additional backup naming patterns
+*.backup
+*.backup_*
+*.bak_*
+
+# Accidental command-output files
+backend/findstr
+backend/powershell
+
+# Historical and backup source files
+/backups/
+backend/**/*backup*.py
+backend/**/*before*.py
+frontend/src/*.before-*.tsx
+frontend/src/*.before-*.css
+backend/test_database.py
+backend/.venv_test/
+backend/app/core/config.py
