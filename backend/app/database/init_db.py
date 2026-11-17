@@ -2,6 +2,7 @@ from app.database.connection import Base, engine
 
 from app.models.company import Company
 from app.models.factory import Factory
+from app.models.factory_sensor import FactorySensor
 from app.models.role import Role
 from app.models.user import User
 from app.models.network_event import NetworkEvent

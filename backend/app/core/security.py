@@ -65,3 +65,31 @@ def decode_access_token(token: str):
 
     except jwt.InvalidTokenError:
         return None
+
+# ==========================================
+# Factory Sensor Security
+# ==========================================
+
+import secrets
+import hashlib
+import hmac
+
+
+# Generate a secure random token for a factory sensor
+def generate_sensor_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+# Hash a sensor token using SHA-256
+def hash_sensor_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# Verify a sensor token against its stored hash
+def verify_sensor_token(token: str, stored_hash: str) -> bool:
+    if not token or not stored_hash:
+        return False
+
+    token_hash = hash_sensor_token(token)
+
+    return hmac.compare_digest(token_hash, stored_hash)

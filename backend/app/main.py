@@ -12,6 +12,7 @@ from app.api.data_upload import router as data_upload_router
 from app.api.predictions import router as predictions_router
 from app.api.dashboard import router as dashboard_router
 from app.api.roles import router as roles_router
+from app.api.sensors import router as sensors_router
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -42,6 +43,7 @@ app.include_router(companies_router)
 
 # Register Factories routes
 app.include_router(factories_router)
+app.include_router(sensors_router)
 app.include_router(network_events_router)
 app.include_router(data_upload_router)
 app.include_router(predictions_router)

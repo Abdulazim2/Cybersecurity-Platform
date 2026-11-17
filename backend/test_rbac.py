@@ -15,6 +15,7 @@ from app.models.company import Company
 from app.models.role import Role
 from app.models.user import User
 from app.models.factory import Factory
+from app.models.factory_sensor import FactorySensor
 from app.models.network_event import NetworkEvent
 from app.models.uploaded_dataset import UploadedDataset
 from app.models.prediction import Prediction
@@ -47,6 +48,7 @@ def test_environment():
             UploadedDataset.__table__,
             NetworkEvent.__table__,
             User.__table__,
+            FactorySensor.__table__,
             Factory.__table__,
             Role.__table__,
             Company.__table__
@@ -174,6 +176,7 @@ def test_environment():
             UploadedDataset.__table__,
             NetworkEvent.__table__,
             User.__table__,
+            FactorySensor.__table__,
             Factory.__table__,
             Role.__table__,
             Company.__table__
@@ -2563,3 +2566,289 @@ def test_get_current_user_profile_without_token(test_environment):
     response = client.get("/auth/me")
 
     assert response.status_code == 401
+
+# ==========================================
+# Factory Sensors RBAC Tests
+# ==========================================
+
+# Test: Admin can register a sensor in own company
+def test_admin_can_register_sensor_in_own_company(test_environment):
+    client, data = test_environment
+
+    response = client.post(
+        "/sensors/",
+        headers=make_headers(data["admin_id"]),
+        json={
+            "name": "Company One Sensor",
+            "factory_id": data["company1_factory_id"]
+        }
+    )
+
+    assert response.status_code == 201
+
+    result = response.json()
+
+    assert result["name"] == "Company One Sensor"
+    assert result["factory_id"] == data["company1_factory_id"]
+    assert result["is_active"] is True
+    assert "sensor_token" in result
+    assert len(result["sensor_token"]) > 30
+    assert "token_hash" not in result
+
+    # Verify that only the token hash is stored in the database
+    from app.core.security import hash_sensor_token
+
+    db = TestingSessionLocal()
+
+    try:
+        sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == result["id"]
+        ).first()
+
+        assert sensor is not None
+        assert sensor.token_hash == hash_sensor_token(
+            result["sensor_token"]
+        )
+        assert sensor.token_hash != result["sensor_token"]
+
+    finally:
+        db.close()
+
+
+# Test: Admin cannot register a sensor in another company
+def test_admin_cannot_register_sensor_in_foreign_company(test_environment):
+    client, data = test_environment
+
+    response = client.post(
+        "/sensors/",
+        headers=make_headers(data["admin_id"]),
+        json={
+            "name": "Unauthorized Foreign Sensor",
+            "factory_id": data["company2_factory_id"]
+        }
+    )
+
+    assert response.status_code == 404
+
+
+# Test: Super Admin can register a sensor in another company
+def test_super_admin_can_register_sensor_in_foreign_company(test_environment):
+    client, data = test_environment
+
+    response = client.post(
+        "/sensors/",
+        headers=make_headers(data["super_admin_id"]),
+        json={
+            "name": "Global Sensor",
+            "factory_id": data["company1_factory_id"]
+        }
+    )
+
+    assert response.status_code == 201
+    assert response.json()["factory_id"] == data["company1_factory_id"]
+
+
+# Test: Security Analyst cannot register sensors
+def test_analyst_cannot_register_sensor(test_environment):
+    client, data = test_environment
+
+    response = client.post(
+        "/sensors/",
+        headers=make_headers(data["analyst_id"]),
+        json={
+            "name": "Unauthorized Sensor",
+            "factory_id": data["company1_factory_id"]
+        }
+    )
+
+    assert response.status_code == 403
+
+
+# Test: Unauthenticated users cannot register sensors
+def test_unauthenticated_user_cannot_register_sensor(test_environment):
+    client, data = test_environment
+
+    response = client.post(
+        "/sensors/",
+        json={
+            "name": "Unauthenticated Sensor",
+            "factory_id": data["company1_factory_id"]
+        }
+    )
+
+    assert response.status_code == 401
+
+# ==========================================
+# Factory Sensor Event Ingestion Tests
+# ==========================================
+
+def create_test_sensor(factory_id, is_active=True):
+    from app.core.security import (
+        generate_sensor_token,
+        hash_sensor_token
+    )
+
+    token = generate_sensor_token()
+
+    db = TestingSessionLocal()
+
+    try:
+        sensor = FactorySensor(
+            factory_id=factory_id,
+            name="Test Network Sensor",
+            token_hash=hash_sensor_token(token),
+            is_active=is_active
+        )
+
+        db.add(sensor)
+        db.commit()
+        db.refresh(sensor)
+
+        return token, sensor.id
+
+    finally:
+        db.close()
+
+
+def test_sensor_can_submit_network_event(test_environment):
+    from app.models.network_event import NetworkEvent
+
+    client, data = test_environment
+
+    token, sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    response = client.post(
+        "/sensors/events",
+        headers={"X-Sensor-Token": token},
+        json={
+            "source_ip": "192.168.1.10",
+            "destination_ip": "192.168.1.20",
+            "protocol": "tcp",
+            "source_port": 5000,
+            "destination_port": 443,
+            "packet_count": 100,
+            "bytes_transferred": 5000,
+            "duration": 2.5
+        }
+    )
+
+    assert response.status_code == 201
+
+    result = response.json()
+
+    assert result["sensor_id"] == sensor_id
+    assert result["factory_id"] == data["company1_factory_id"]
+
+    db = TestingSessionLocal()
+
+    try:
+        event = db.query(NetworkEvent).filter(
+            NetworkEvent.id == result["event_id"]
+        ).first()
+
+        sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == sensor_id
+        ).first()
+
+        assert event is not None
+        assert event.factory_id == data["company1_factory_id"]
+        assert event.company_id == data["company1_id"]
+        assert event.protocol == "TCP"
+
+        assert sensor.last_seen is not None
+
+    finally:
+        db.close()
+
+
+def test_sensor_rejects_invalid_token(test_environment):
+    client, data = test_environment
+
+    response = client.post(
+        "/sensors/events",
+        headers={"X-Sensor-Token": "invalid-sensor-token"},
+        json={
+            "source_ip": "192.168.1.10",
+            "destination_ip": "192.168.1.20",
+            "protocol": "TCP"
+        }
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid sensor token"
+
+
+def test_sensor_rejects_missing_token(test_environment):
+    client, data = test_environment
+
+    response = client.post(
+        "/sensors/events",
+        json={
+            "source_ip": "192.168.1.10",
+            "destination_ip": "192.168.1.20",
+            "protocol": "TCP"
+        }
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Sensor token is required"
+
+
+def test_inactive_sensor_cannot_submit_event(test_environment):
+    client, data = test_environment
+
+    token, sensor_id = create_test_sensor(
+        data["company1_factory_id"],
+        is_active=False
+    )
+
+    response = client.post(
+        "/sensors/events",
+        headers={"X-Sensor-Token": token},
+        json={
+            "source_ip": "192.168.1.10",
+            "destination_ip": "192.168.1.20",
+            "protocol": "TCP"
+        }
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid sensor token"
+
+
+def test_sensor_cannot_submit_event_for_inactive_factory(test_environment):
+    client, data = test_environment
+
+    token, sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    db = TestingSessionLocal()
+
+    try:
+        factory = db.query(Factory).filter(
+            Factory.id == data["company1_factory_id"]
+        ).first()
+
+        factory.is_active = False
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.post(
+        "/sensors/events",
+        headers={"X-Sensor-Token": token},
+        json={
+            "source_ip": "192.168.1.10",
+            "destination_ip": "192.168.1.20",
+            "protocol": "TCP"
+        }
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "Sensor factory is inactive or unavailable"
+    )
