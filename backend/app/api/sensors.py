@@ -1,8 +1,6 @@
+
 from datetime import datetime, timezone
 
-from app.core.security import verify_sensor_token
-from app.models.network_event import NetworkEvent
-from app.schemas.sensor import SensorNetworkEventCreate
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 
@@ -14,16 +12,19 @@ from app.core.dependencies import (
 
 from app.core.security import (
     generate_sensor_token,
-    hash_sensor_token
+    hash_sensor_token,
+    verify_sensor_token
 )
 
 from app.models.user import User
 from app.models.factory import Factory
 from app.models.factory_sensor import FactorySensor
+from app.models.network_event import NetworkEvent
 
 from app.schemas.sensor import (
     SensorCreate,
-    SensorRegistrationResponse
+    SensorRegistrationResponse,
+    SensorNetworkEventCreate
 )
 
 
@@ -33,6 +34,10 @@ router = APIRouter(
 )
 
 
+# ==========================================
+# Register a new factory sensor
+# ==========================================
+
 @router.post(
     "/",
     response_model=SensorRegistrationResponse,
@@ -41,17 +46,13 @@ router = APIRouter(
 def register_sensor(
     sensor_data: SensorCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_role("Admin")
-    )
+    current_user: User = Depends(require_role("Admin"))
 ):
-    # Check that the target factory exists and is active
     factory_query = db.query(Factory).filter(
         Factory.id == sensor_data.factory_id,
         Factory.is_active.is_(True)
     )
 
-    # Admin can only register sensors in their own company
     if not is_super_admin(current_user, db):
         factory_query = factory_query.filter(
             Factory.company_id == current_user.company_id
@@ -65,7 +66,6 @@ def register_sensor(
             detail="Factory not found"
         )
 
-    # Generate a one-time sensor token
     sensor_token = generate_sensor_token()
 
     new_sensor = FactorySensor(
@@ -87,7 +87,6 @@ def register_sensor(
             detail="Could not register sensor"
         )
 
-    # Return the original token only once
     return SensorRegistrationResponse(
         id=new_sensor.id,
         name=new_sensor.name,
@@ -97,6 +96,10 @@ def register_sensor(
         sensor_token=sensor_token
     )
 
+
+# ==========================================
+# Receive network events from factory sensors
+# ==========================================
 
 @router.post(
     "/events",
@@ -114,22 +117,19 @@ def receive_sensor_event(
             detail="Sensor token is required"
         )
 
-    # Find the sensor by verifying its token hash
-    sensors = db.query(FactorySensor).filter(
+    # Find the sensor using its token hash
+    token_hash = hash_sensor_token(x_sensor_token)
+
+    sensor = db.query(FactorySensor).filter(
+        FactorySensor.token_hash == token_hash,
         FactorySensor.is_active.is_(True)
-    ).all()
+    ).first()
 
-    sensor = None
-
-    for candidate in sensors:
-        if verify_sensor_token(
-            x_sensor_token,
-            candidate.token_hash
-        ):
-            sensor = candidate
-            break
-
-    if sensor is None:
+    # Verify the token securely
+    if sensor is None or not verify_sensor_token(
+        x_sensor_token,
+        sensor.token_hash
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid sensor token"
@@ -147,7 +147,7 @@ def receive_sensor_event(
             detail="Sensor factory is inactive or unavailable"
         )
 
-    # Create event using trusted factory/company ownership
+    # Assign factory and company from trusted database records
     new_event = NetworkEvent(
         **event_data.model_dump(),
         factory_id=factory.id,
@@ -156,7 +156,6 @@ def receive_sensor_event(
 
     try:
         db.add(new_event)
-
         sensor.last_seen = datetime.now(timezone.utc)
 
         db.commit()
