@@ -3626,3 +3626,206 @@ def test_factory_sensor_dashboard_requires_authentication(test_environment):
     )
 
     assert response.status_code == 401
+
+def test_admin_can_view_own_factory_sensor_dashboard_details(test_environment):
+    from datetime import datetime, timezone, timedelta
+
+    client, data = test_environment
+
+    # Create sensors with different statuses
+    _, online_sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    _, offline_sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    create_test_sensor(
+        data["company1_factory_id"],
+        is_active=False
+    )
+
+    # Create a sensor in another company
+    create_test_sensor(data["company2_factory_id"])
+
+    db = TestingSessionLocal()
+
+    try:
+        online_sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == online_sensor_id
+        ).first()
+
+        offline_sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == offline_sensor_id
+        ).first()
+
+        online_sensor.last_seen = datetime.now(timezone.utc)
+
+        offline_sensor.last_seen = (
+            datetime.now(timezone.utc) - timedelta(minutes=10)
+        )
+
+        # Create a network event for this factory
+        event = NetworkEvent(
+            company_id=data["company1_id"],
+            factory_id=data["company1_factory_id"],
+            source_ip="192.168.1.10",
+            destination_ip="192.168.1.20",
+            protocol="TCP",
+            source_port=5000,
+            destination_port=443,
+            packet_count=100,
+            bytes_transferred=5000,
+            duration=2.5,
+            event_time=datetime.now(timezone.utc)
+        )
+
+        db.add(event)
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        f"/sensors/dashboard/factories/{data['company1_factory_id']}",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    result = response.json()
+
+    assert result["factory_id"] == data["company1_factory_id"]
+    assert result["company_id"] == data["company1_id"]
+
+    assert result["total_sensors"] == 3
+    assert result["online_sensors"] == 1
+    assert result["offline_sensors"] == 1
+    assert result["inactive_sensors"] == 1
+
+    assert len(result["sensors"]) == 3
+
+    sensor_statuses = {
+        sensor["id"]: sensor["status"]
+        for sensor in result["sensors"]
+    }
+
+    assert sensor_statuses[online_sensor_id] == "Online"
+    assert sensor_statuses[offline_sensor_id] == "Offline"
+
+    assert len(result["recent_events"]) == 1
+    assert result["recent_events"][0]["source_ip"] == "192.168.1.10"
+    assert result["recent_events"][0]["protocol"] == "TCP"
+
+
+def test_admin_cannot_view_other_company_factory_details(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        f"/sensors/dashboard/factories/{data['company2_factory_id']}",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 404
+
+
+def test_super_admin_can_view_any_company_factory_details(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        f"/sensors/dashboard/factories/{data['company2_factory_id']}",
+        headers=make_headers(data["super_admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    result = response.json()
+
+    assert result["factory_id"] == data["company2_factory_id"]
+    assert result["company_id"] == data["company2_id"]
+
+
+def test_analyst_cannot_view_factory_sensor_dashboard_details(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        f"/sensors/dashboard/factories/{data['company1_factory_id']}",
+        headers=make_headers(data["analyst_id"])
+    )
+
+    assert response.status_code == 403
+
+
+def test_factory_sensor_dashboard_details_requires_authentication(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        f"/sensors/dashboard/factories/{data['company1_factory_id']}"
+    )
+
+    assert response.status_code == 401
+
+
+def test_factory_sensor_dashboard_details_returns_404_for_nonexistent_factory(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        "/sensors/dashboard/factories/999999",
+        headers=make_headers(data["super_admin_id"])
+    )
+
+    assert response.status_code == 404
+
+def test_factory_dashboard_details_returns_latest_10_events_in_order(test_environment):
+    from datetime import datetime, timezone, timedelta
+
+    client, data = test_environment
+
+    now = datetime.now(timezone.utc)
+
+    db = TestingSessionLocal()
+
+    try:
+        # Create 12 events with different timestamps
+        for i in range(12):
+            event = NetworkEvent(
+                company_id=data["company1_id"],
+                factory_id=data["company1_factory_id"],
+                source_ip=f"10.0.0.{i + 1}",
+                destination_ip="10.0.1.1",
+                protocol="TCP",
+                event_time=now - timedelta(minutes=i)
+            )
+
+            db.add(event)
+
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        f"/sensors/dashboard/factories/{data['company1_factory_id']}",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    recent_events = response.json()["recent_events"]
+
+    # Only the latest 10 events should be returned
+    assert len(recent_events) == 10
+
+    # Events must be ordered from newest to oldest
+    expected_source_ips = [
+        f"10.0.0.{i}"
+        for i in range(1, 11)
+    ]
+
+    actual_source_ips = [
+        event["source_ip"]
+        for event in recent_events
+    ]
+
+    assert actual_source_ips == expected_source_ips

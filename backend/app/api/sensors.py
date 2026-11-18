@@ -27,7 +27,10 @@ from app.schemas.sensor import (
     SensorListResponse,
     SensorStatusUpdate,
     SensorDashboardSummaryResponse,
-    FactorySensorDashboardResponse
+    FactorySensorDashboardResponse,
+    FactorySensorDetailItem,
+    FactoryNetworkEventItem,
+    FactorySensorDashboardDetailResponse
 )
 router = APIRouter(
     prefix="/sensors",
@@ -399,6 +402,134 @@ def get_factory_sensor_dashboard(
         )
 
     return factory_results
+
+# ==========================================
+# Factory Sensor Dashboard Details
+# ==========================================
+
+@router.get(
+    "/dashboard/factories/{factory_id}",
+    response_model=FactorySensorDashboardDetailResponse
+)
+def get_factory_sensor_dashboard_details(
+    factory_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("Admin"))
+):
+    # Find the factory
+    factory_query = db.query(Factory).filter(
+        Factory.id == factory_id
+    )
+
+    # Restrict regular admins to their own company
+    if not is_super_admin(current_user, db):
+        factory_query = factory_query.filter(
+            Factory.company_id == current_user.company_id
+        )
+
+    factory = factory_query.first()
+
+    # Do not reveal factories belonging to other companies
+    if factory is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Factory not found"
+        )
+
+    # Get all sensors belonging to this factory
+    sensors = db.query(FactorySensor).filter(
+        FactorySensor.factory_id == factory.id
+    ).order_by(
+        FactorySensor.created_at.desc()
+    ).all()
+
+    now = datetime.now(timezone.utc)
+    online_threshold = now - timedelta(minutes=5)
+
+    total_sensors = len(sensors)
+    online_sensors = 0
+    offline_sensors = 0
+    inactive_sensors = 0
+
+    sensor_results = []
+
+    # Calculate sensor statuses
+    for sensor in sensors:
+
+        if not sensor.is_active or not factory.is_active:
+            sensor_status = "Inactive"
+            inactive_sensors += 1
+
+        elif sensor.last_seen is None:
+            sensor_status = "Offline"
+            offline_sensors += 1
+
+        else:
+            last_seen = sensor.last_seen
+
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(
+                    tzinfo=timezone.utc
+                )
+
+            if last_seen >= online_threshold:
+                sensor_status = "Online"
+                online_sensors += 1
+            else:
+                sensor_status = "Offline"
+                offline_sensors += 1
+
+        sensor_results.append(
+            FactorySensorDetailItem(
+                id=sensor.id,
+                name=sensor.name,
+                factory_id=sensor.factory_id,
+                is_active=sensor.is_active,
+                last_seen=sensor.last_seen,
+                created_at=sensor.created_at,
+                status=sensor_status
+            )
+        )
+
+    # Get the latest 10 network events for this factory
+    recent_events = db.query(NetworkEvent).filter(
+        NetworkEvent.factory_id == factory.id,
+        NetworkEvent.company_id == factory.company_id
+    ).order_by(
+        NetworkEvent.event_time.desc(),
+        NetworkEvent.created_at.desc()
+    ).limit(10).all()
+
+    event_results = [
+        FactoryNetworkEventItem(
+            id=event.id,
+            source_ip=event.source_ip,
+            destination_ip=event.destination_ip,
+            protocol=event.protocol,
+            source_port=event.source_port,
+            destination_port=event.destination_port,
+            packet_count=event.packet_count,
+            bytes_transferred=event.bytes_transferred,
+            duration=event.duration,
+            event_time=event.event_time,
+            created_at=event.created_at
+        )
+        for event in recent_events
+    ]
+
+    return FactorySensorDashboardDetailResponse(
+        factory_id=factory.id,
+        factory_name=factory.name,
+        factory_location=factory.location,
+        company_id=factory.company_id,
+        factory_is_active=factory.is_active,
+        total_sensors=total_sensors,
+        online_sensors=online_sensors,
+        offline_sensors=offline_sensors,
+        inactive_sensors=inactive_sensors,
+        sensors=sensor_results,
+        recent_events=event_results
+    )
 
 # ==========================================
 # List factory sensors

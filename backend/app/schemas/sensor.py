@@ -109,3 +109,42 @@ class FactorySensorDashboardResponse(BaseModel):
     online_sensors: int
     offline_sensors: int
     inactive_sensors: int
+
+class FactorySensorDetailItem(BaseModel):
+    id: int
+    name: str
+    factory_id: int
+    is_active: bool
+    last_seen: datetime | None = None
+    created_at: datetime | None = None
+    status: Literal["Online", "Offline", "Inactive"]
+
+
+class FactoryNetworkEventItem(BaseModel):
+    id: int
+    source_ip: str
+    destination_ip: str
+    protocol: str
+    source_port: int | None = None
+    destination_port: int | None = None
+    packet_count: int | None = None
+    bytes_transferred: int | None = None
+    duration: float | None = None
+    event_time: datetime | None = None
+    created_at: datetime | None = None
+
+
+class FactorySensorDashboardDetailResponse(BaseModel):
+    factory_id: int
+    factory_name: str
+    factory_location: str | None = None
+    company_id: int
+    factory_is_active: bool
+
+    total_sensors: int
+    online_sensors: int
+    offline_sensors: int
+    inactive_sensors: int
+
+    sensors: list[FactorySensorDetailItem]
+    recent_events: list[FactoryNetworkEventItem]
