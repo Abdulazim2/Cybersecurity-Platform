@@ -2852,3 +2852,110 @@ def test_sensor_cannot_submit_event_for_inactive_factory(test_environment):
     assert response.json()["detail"] == (
         "Sensor factory is inactive or unavailable"
     )
+
+# ==========================================
+# Factory Sensor Heartbeat Tests
+# ==========================================
+
+def test_sensor_can_send_heartbeat(test_environment):
+    client, data = test_environment
+
+    token, sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    response = client.post(
+        "/sensors/heartbeat",
+        headers={"X-Sensor-Token": token}
+    )
+
+    assert response.status_code == 200
+
+    result = response.json()
+
+    assert result["sensor_id"] == sensor_id
+    assert result["factory_id"] == data["company1_factory_id"]
+    assert result["message"] == "Sensor heartbeat received successfully"
+    assert result["last_seen"] is not None
+
+    db = TestingSessionLocal()
+
+    try:
+        sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == sensor_id
+        ).first()
+
+        assert sensor is not None
+        assert sensor.last_seen is not None
+
+    finally:
+        db.close()
+
+
+def test_sensor_heartbeat_rejects_invalid_token(test_environment):
+    client, data = test_environment
+
+    response = client.post(
+        "/sensors/heartbeat",
+        headers={"X-Sensor-Token": "invalid-sensor-token"}
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid sensor token"
+
+
+def test_sensor_heartbeat_rejects_missing_token(test_environment):
+    client, data = test_environment
+
+    response = client.post("/sensors/heartbeat")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Sensor token is required"
+
+
+def test_inactive_sensor_cannot_send_heartbeat(test_environment):
+    client, data = test_environment
+
+    token, sensor_id = create_test_sensor(
+        data["company1_factory_id"],
+        is_active=False
+    )
+
+    response = client.post(
+        "/sensors/heartbeat",
+        headers={"X-Sensor-Token": token}
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid sensor token"
+
+
+def test_sensor_cannot_send_heartbeat_for_inactive_factory(test_environment):
+    client, data = test_environment
+
+    token, sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    db = TestingSessionLocal()
+
+    try:
+        factory = db.query(Factory).filter(
+            Factory.id == data["company1_factory_id"]
+        ).first()
+
+        factory.is_active = False
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.post(
+        "/sensors/heartbeat",
+        headers={"X-Sensor-Token": token}
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "Sensor factory is inactive or unavailable"
+    )

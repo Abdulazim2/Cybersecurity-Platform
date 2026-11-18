@@ -174,3 +174,70 @@ def receive_sensor_event(
         "sensor_id": sensor.id,
         "factory_id": factory.id
     }
+
+# ==========================================
+# Sensor Heartbeat
+# ==========================================
+
+@router.post("/heartbeat")
+def sensor_heartbeat(
+    x_sensor_token: str | None = Header(default=None),
+    db: Session = Depends(get_db)
+):
+    # Require a sensor token
+    if not x_sensor_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sensor token is required"
+        )
+
+    # Find sensor using token hash
+    token_hash = hash_sensor_token(x_sensor_token)
+
+    sensor = db.query(FactorySensor).filter(
+        FactorySensor.token_hash == token_hash,
+        FactorySensor.is_active.is_(True)
+    ).first()
+
+    # Verify sensor token
+    if sensor is None or not verify_sensor_token(
+        x_sensor_token,
+        sensor.token_hash
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid sensor token"
+        )
+
+    # Check that the sensor's factory is active
+    factory = db.query(Factory).filter(
+        Factory.id == sensor.factory_id,
+        Factory.is_active.is_(True)
+    ).first()
+
+    if factory is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sensor factory is inactive or unavailable"
+        )
+
+    # Update last heartbeat time
+    sensor.last_seen = datetime.now(timezone.utc)
+
+    try:
+        db.commit()
+        db.refresh(sensor)
+
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not update sensor heartbeat"
+        )
+
+    return {
+        "message": "Sensor heartbeat received successfully",
+        "sensor_id": sensor.id,
+        "factory_id": factory.id,
+        "last_seen": sensor.last_seen
+    }
