@@ -2959,3 +2959,140 @@ def test_sensor_cannot_send_heartbeat_for_inactive_factory(test_environment):
     assert response.json()["detail"] == (
         "Sensor factory is inactive or unavailable"
     )
+
+# ==========================================
+# Factory Sensor List Tests
+# ==========================================
+
+def test_sensor_list_admin_sees_only_own_company_sensors(test_environment):
+    client, data = test_environment
+
+    _, sensor1_id = create_test_sensor(data["company1_factory_id"])
+    _, sensor2_id = create_test_sensor(data["company2_factory_id"])
+
+    response = client.get(
+        "/sensors/",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    sensor_ids = [sensor["id"] for sensor in response.json()]
+
+    assert sensor1_id in sensor_ids
+    assert sensor2_id not in sensor_ids
+
+
+def test_sensor_list_super_admin_sees_all_company_sensors(test_environment):
+    client, data = test_environment
+
+    _, sensor1_id = create_test_sensor(data["company1_factory_id"])
+    _, sensor2_id = create_test_sensor(data["company2_factory_id"])
+
+    response = client.get(
+        "/sensors/",
+        headers=make_headers(data["super_admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    sensor_ids = [sensor["id"] for sensor in response.json()]
+
+    assert sensor1_id in sensor_ids
+    assert sensor2_id in sensor_ids
+
+
+def test_sensor_list_rejects_analyst(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        "/sensors/",
+        headers=make_headers(data["analyst_id"])
+    )
+
+    assert response.status_code == 403
+
+
+def test_sensor_list_returns_correct_sensor_statuses(test_environment):
+    from datetime import datetime, timezone, timedelta
+
+    client, data = test_environment
+
+    _, online_id = create_test_sensor(data["company1_factory_id"])
+    _, offline_id = create_test_sensor(data["company1_factory_id"])
+    _, never_seen_id = create_test_sensor(data["company1_factory_id"])
+    _, inactive_id = create_test_sensor(
+        data["company1_factory_id"],
+        is_active=False
+    )
+
+    db = TestingSessionLocal()
+
+    try:
+        online_sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == online_id
+        ).first()
+
+        offline_sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == offline_id
+        ).first()
+
+        online_sensor.last_seen = datetime.now(timezone.utc)
+        offline_sensor.last_seen = (
+            datetime.now(timezone.utc) - timedelta(minutes=10)
+        )
+
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        "/sensors/",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    sensors = {
+        sensor["id"]: sensor
+        for sensor in response.json()
+    }
+
+    assert sensors[online_id]["status"] == "Online"
+    assert sensors[offline_id]["status"] == "Offline"
+    assert sensors[never_seen_id]["status"] == "Offline"
+    assert sensors[inactive_id]["status"] == "Inactive"
+
+
+def test_sensor_list_returns_inactive_when_factory_is_inactive(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(data["company1_factory_id"])
+
+    db = TestingSessionLocal()
+
+    try:
+        factory = db.query(Factory).filter(
+            Factory.id == data["company1_factory_id"]
+        ).first()
+
+        factory.is_active = False
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        "/sensors/",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    sensors = {
+        sensor["id"]: sensor
+        for sensor in response.json()
+    }
+
+    assert sensors[sensor_id]["status"] == "Inactive"

@@ -1,4 +1,4 @@
-
+from typing import Literal
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -77,3 +77,12 @@ class SensorNetworkEventCreate(BaseModel):
             raise ValueError("Duration must be a finite number")
 
         return value
+
+class SensorListResponse(BaseModel):
+    id: int
+    name: str
+    factory_id: int
+    is_active: bool
+    last_seen: datetime | None = None
+    created_at: datetime | None = None
+    status: Literal["Online", "Offline", "Inactive"]

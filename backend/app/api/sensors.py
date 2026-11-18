@@ -1,6 +1,5 @@
 
-from datetime import datetime, timezone
-
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 
@@ -24,9 +23,9 @@ from app.models.network_event import NetworkEvent
 from app.schemas.sensor import (
     SensorCreate,
     SensorRegistrationResponse,
-    SensorNetworkEventCreate
+    SensorNetworkEventCreate,
+    SensorListResponse
 )
-
 
 router = APIRouter(
     prefix="/sensors",
@@ -241,3 +240,77 @@ def sensor_heartbeat(
         "factory_id": factory.id,
         "last_seen": sensor.last_seen
     }
+
+# ==========================================
+# List factory sensors
+# ==========================================
+
+@router.get(
+    "/",
+    response_model=list[SensorListResponse]
+)
+def list_sensors(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("Admin"))
+):
+    # Get sensors together with their factory status
+    sensors_query = db.query(
+        FactorySensor,
+        Factory.is_active
+    ).join(
+        Factory,
+        Factory.id == FactorySensor.factory_id
+    )
+
+    # Restrict regular admins to their own company
+    if not is_super_admin(current_user, db):
+        sensors_query = sensors_query.filter(
+            Factory.company_id == current_user.company_id
+        )
+
+    sensors_query = sensors_query.order_by(
+        FactorySensor.created_at.desc()
+    )
+
+    sensor_records = sensors_query.all()
+
+    now = datetime.now(timezone.utc)
+    online_threshold = now - timedelta(minutes=5)
+
+    results = []
+
+    for sensor, factory_is_active in sensor_records:
+
+        # Disabled sensor or inactive factory
+        if not sensor.is_active or not factory_is_active:
+            sensor_status = "Inactive"
+
+        # Sensor has never sent a heartbeat or event
+        elif sensor.last_seen is None:
+            sensor_status = "Offline"
+
+        else:
+            last_seen = sensor.last_seen
+
+            # Handle databases that return naive datetimes
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+            if last_seen >= online_threshold:
+                sensor_status = "Online"
+            else:
+                sensor_status = "Offline"
+
+        results.append(
+            SensorListResponse(
+                id=sensor.id,
+                name=sensor.name,
+                factory_id=sensor.factory_id,
+                is_active=sensor.is_active,
+                last_seen=sensor.last_seen,
+                created_at=sensor.created_at,
+                status=sensor_status
+            )
+        )
+
+    return results
