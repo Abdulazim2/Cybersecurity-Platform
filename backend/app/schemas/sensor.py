@@ -86,3 +86,6 @@ class SensorListResponse(BaseModel):
     last_seen: datetime | None = None
     created_at: datetime | None = None
     status: Literal["Online", "Offline", "Inactive"]
+
+class SensorStatusUpdate(BaseModel):
+    is_active: bool

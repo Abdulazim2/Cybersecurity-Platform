@@ -3167,3 +3167,179 @@ def test_sensor_details_returns_404_for_nonexistent_sensor(test_environment):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Sensor not found"
+# ==========================================
+# Factory Sensor Status Update Tests
+# ==========================================
+
+def test_admin_can_deactivate_own_company_sensor(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(data["company1_factory_id"])
+
+    response = client.patch(
+        f"/sensors/{sensor_id}/status",
+        json={"is_active": False},
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_active"] is False
+    assert response.json()["status"] == "Inactive"
+
+
+def test_admin_can_activate_own_company_sensor(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(
+        data["company1_factory_id"],
+        is_active=False
+    )
+
+    response = client.patch(
+        f"/sensors/{sensor_id}/status",
+        json={"is_active": True},
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_active"] is True
+    assert response.json()["status"] == "Offline"
+
+
+def test_admin_cannot_change_other_company_sensor_status(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(data["company2_factory_id"])
+
+    response = client.patch(
+        f"/sensors/{sensor_id}/status",
+        json={"is_active": False},
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Sensor not found"
+
+
+def test_super_admin_can_change_any_company_sensor_status(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(data["company2_factory_id"])
+
+    response = client.patch(
+        f"/sensors/{sensor_id}/status",
+        json={"is_active": False},
+        headers=make_headers(data["super_admin_id"])
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_active"] is False
+    assert response.json()["status"] == "Inactive"
+
+
+def test_analyst_cannot_change_sensor_status(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(data["company1_factory_id"])
+
+    response = client.patch(
+        f"/sensors/{sensor_id}/status",
+        json={"is_active": False},
+        headers=make_headers(data["analyst_id"])
+    )
+
+    assert response.status_code == 403
+
+
+def test_sensor_status_update_returns_404_for_nonexistent_sensor(test_environment):
+    client, data = test_environment
+
+    response = client.patch(
+        "/sensors/999999/status",
+        json={"is_active": False},
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Sensor not found"
+
+# ==========================================
+# Sensor Activation Integration Tests
+# ==========================================
+
+def test_deactivated_sensor_cannot_submit_events_or_heartbeat(test_environment):
+    client, data = test_environment
+
+    token, sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    # Deactivate sensor
+    deactivate_response = client.patch(
+        f"/sensors/{sensor_id}/status",
+        json={"is_active": False},
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert deactivate_response.status_code == 200
+
+    # Sensor must not submit network events
+    event_response = client.post(
+        "/sensors/events",
+        headers={"X-Sensor-Token": token},
+        json={
+            "source_ip": "192.168.1.10",
+            "destination_ip": "192.168.1.20",
+            "protocol": "TCP",
+            "source_port": 5000,
+            "destination_port": 443,
+            "packet_count": 100,
+            "bytes_transferred": 5000,
+            "duration": 2.5
+        }
+    )
+
+    assert event_response.status_code == 401
+
+    # Sensor must not send heartbeat
+    heartbeat_response = client.post(
+        "/sensors/heartbeat",
+        headers={"X-Sensor-Token": token}
+    )
+
+    assert heartbeat_response.status_code == 401
+
+
+def test_reactivated_sensor_can_use_same_token(test_environment):
+    client, data = test_environment
+
+    token, sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    # Deactivate sensor
+    deactivate_response = client.patch(
+        f"/sensors/{sensor_id}/status",
+        json={"is_active": False},
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert deactivate_response.status_code == 200
+
+    # Reactivate sensor
+    activate_response = client.patch(
+        f"/sensors/{sensor_id}/status",
+        json={"is_active": True},
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert activate_response.status_code == 200
+    assert activate_response.json()["is_active"] is True
+
+    # The original token must work again
+    heartbeat_response = client.post(
+        "/sensors/heartbeat",
+        headers={"X-Sensor-Token": token}
+    )
+
+    assert heartbeat_response.status_code == 200
