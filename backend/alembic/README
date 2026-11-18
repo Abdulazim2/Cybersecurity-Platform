@@ -1,0 +1,76 @@
+# Database Migrations
+
+This project uses Alembic to manage PostgreSQL database schema changes.
+
+## Configuration
+
+- `alembic.ini`: Alembic configuration.
+- `alembic/env.py`: Database connection and SQLAlchemy metadata configuration.
+- `alembic/versions/`: Migration revision files.
+- `app/database/init_db.py`: Imports all SQLAlchemy models into `Base.metadata`.
+
+Alembic uses the application's `DATABASE_URL` by default.
+
+For isolated migration testing, set `ALEMBIC_DATABASE_URL` to a separate database URL. Never use the production database for migration experiments.
+
+## Common Commands
+
+Run commands from the backend directory.
+
+Check the current migration revision:
+
+```bash
+alembic current
+```
+
+List migration history:
+
+```bash
+alembic history
+```
+
+Create a new migration after changing SQLAlchemy models:
+
+```bash
+alembic revision --autogenerate -m "describe schema change"
+```
+
+Review the generated migration file before applying it.
+
+Apply pending migrations:
+
+```bash
+alembic upgrade head
+```
+
+Check whether model metadata and the current database schema differ:
+
+```bash
+alembic check
+```
+
+## Existing Database Baseline
+
+The initial migration is:
+
+`9d78022be8ca_create_initial_database_schema.py`
+
+The existing database was created before Alembic adoption. Its schema was compared against SQLAlchemy metadata, and the initial revision was recorded using:
+
+```bash
+alembic stamp head
+```
+
+Do not run `alembic upgrade head` against an existing database that has not been baselined without first verifying its schema and backup.
+
+## Safe Migration Workflow
+
+1. Back up the database.
+2. Update the relevant SQLAlchemy models.
+3. Generate a migration using `--autogenerate`.
+4. Review the migration's `upgrade()` and `downgrade()` functions.
+5. Test the migration against a separate PostgreSQL database.
+6. Verify the resulting schema and application tests.
+7. Apply the reviewed migration to the intended database.
+
+Never commit database passwords, secret keys, or `.env` contents.

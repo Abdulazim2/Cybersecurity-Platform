@@ -3829,3 +3829,46 @@ def test_factory_dashboard_details_returns_latest_10_events_in_order(test_enviro
     ]
 
     assert actual_source_ips == expected_source_ips
+
+# Test: Uploaded filename is normalized before being saved
+def test_upload_normalizes_filename_before_saving(test_environment):
+    client, data = test_environment
+
+    csv_content = (
+        b"timestamp,source_ip,destination_ip,protocol,packet_count\n"
+        b"2026-11-05T10:00:00,192.168.1.10,192.168.1.20,TCP,100"
+    )
+
+    response = client.post(
+        "/data-upload/",
+        headers=make_headers(data["admin_id"]),
+        data={
+            "factory_id": str(data["company1_factory_id"]),
+            "dataset_type": "traffic_logs"
+        },
+        files={
+            "file": (
+                "C:\\Users\\Admin\\traffic.csv",
+                csv_content,
+                "text/csv"
+            )
+        }
+    )
+
+    assert response.status_code == 201
+    assert response.json()["filename"] == "traffic.csv"
+
+    dataset_id = response.json()["dataset_id"]
+
+    db = TestingSessionLocal()
+
+    try:
+        saved_dataset = db.query(UploadedDataset).filter(
+            UploadedDataset.id == dataset_id
+        ).first()
+
+        assert saved_dataset is not None
+        assert saved_dataset.filename == "traffic.csv"
+
+    finally:
+        db.close()

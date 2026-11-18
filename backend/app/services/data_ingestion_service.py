@@ -20,7 +20,33 @@ ALLOWED_DATASET_TYPES = {
     "authorization_logs"
 }
 
+def normalize_filename(filename: str) -> str:
+    """
+    Normalize an uploaded filename without trusting client-supplied paths.
+    Supports both Windows and POSIX path separators.
+    """
 
+    if not isinstance(filename, str):
+        raise ValueError("Invalid filename")
+
+    if not filename or not filename.strip():
+        raise ValueError("Filename cannot be empty")
+
+    if any(ord(char) < 32 or ord(char) == 127 for char in filename):
+        raise ValueError("Filename contains invalid control characters")
+
+    normalized = filename.replace("\\", "/").split("/")[-1].strip()
+
+    if not normalized or normalized in {".", ".."}:
+        raise ValueError("Invalid filename")
+
+    if not normalized.strip("."):
+        raise ValueError("Invalid filename")
+
+    if len(normalized) > 255:
+        raise ValueError("Filename cannot exceed 255 characters")
+
+    return normalized
 # Initial schemas based on the available test files.
 # These schemas should be reviewed with the ML team.
 DATASET_SCHEMAS = {
@@ -315,6 +341,9 @@ def process_uploaded_file(filename: str, file_content: bytes, dataset_type: str)
     if dataset_type not in ALLOWED_DATASET_TYPES:
         raise ValueError("Unsupported dataset type")
 
+    # Normalize and validate the uploaded filename
+    filename = normalize_filename(filename)
+
     # Validate file size
     if not file_content:
         raise ValueError("Uploaded file is empty")
@@ -327,7 +356,6 @@ def process_uploaded_file(filename: str, file_content: bytes, dataset_type: str)
 
     if extension not in [".csv", ".json"]:
         raise ValueError("Only CSV and JSON files are supported")
-
     try:
         # Read CSV files
         if extension == ".csv":

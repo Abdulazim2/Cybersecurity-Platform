@@ -3,6 +3,7 @@ import pytest
 
 from app.services.data_ingestion_service import (
     MAX_FILE_SIZE,
+    normalize_filename,
     process_uploaded_file,
 )
 
@@ -54,3 +55,65 @@ def test_upload_edge_cases(
             file_content=content,
             dataset_type=dataset_type,
         )
+@pytest.mark.parametrize(
+    "filename, expected",
+    [
+        ("data.csv", "data.csv"),
+        ("C:\\Users\\Admin\\data.csv", "data.csv"),
+        ("/home/user/data.json", "data.json"),
+        ("folder\\nested\\traffic.csv", "traffic.csv"),
+        ("  traffic.csv  ", "traffic.csv"),
+    ],
+    ids=[
+        "normal-filename",
+        "windows-path",
+        "linux-path",
+        "nested-path",
+        "trim-whitespace",
+    ],
+)
+def test_normalize_valid_filename(filename, expected):
+    assert normalize_filename(filename) == expected
+
+
+@pytest.mark.parametrize(
+    "filename, expected_error",
+    [
+        ("", "Filename cannot be empty"),
+        ("   ", "Filename cannot be empty"),
+        (".", "Invalid filename"),
+        ("..", "Invalid filename"),
+        ("...", "Invalid filename"),
+        ("bad\nname.csv", "control characters"),
+        ("a" * 256 + ".csv", "255 characters"),
+        (None, "Invalid filename"),
+    ],
+    ids=[
+        "empty",
+        "whitespace-only",
+        "dot",
+        "double-dot",
+        "dots-only",
+        "newline",
+        "too-long",
+        "not-a-string",
+    ],
+)
+def test_normalize_invalid_filename(filename, expected_error):
+    with pytest.raises(ValueError, match=expected_error):
+        normalize_filename(filename)
+
+
+def test_process_uploaded_file_stores_normalized_filename():
+    content = (
+        b"timestamp,source_ip,destination_ip,protocol,packet_count\n"
+        b"2026-11-05T10:00:00,192.168.1.1,192.168.1.2,TCP,10"
+    )
+
+    result = process_uploaded_file(
+        filename="C:\\Users\\Admin\\traffic.csv",
+        file_content=content,
+        dataset_type="traffic_logs",
+    )
+
+    assert result["filename"] == "traffic.csv"
