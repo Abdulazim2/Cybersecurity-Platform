@@ -3462,3 +3462,167 @@ def test_sensor_dashboard_summary_requires_authentication(test_environment):
     )
 
     assert response.status_code == 401
+def test_admin_can_view_own_company_factory_sensor_dashboard(test_environment):
+    client, data = test_environment
+
+    from datetime import datetime, timezone, timedelta
+
+    db = TestingSessionLocal()
+
+    try:
+        inactive_factory = Factory(
+            name="Inactive Dashboard Factory",
+            location="Cairo",
+            company_id=data["company1_id"],
+            is_active=False
+        )
+
+        empty_factory = Factory(
+            name="Empty Dashboard Factory",
+            location="Giza",
+            company_id=data["company1_id"],
+            is_active=True
+        )
+
+        db.add_all([inactive_factory, empty_factory])
+        db.commit()
+        db.refresh(inactive_factory)
+        db.refresh(empty_factory)
+
+        inactive_factory_id = inactive_factory.id
+        empty_factory_id = empty_factory.id
+
+    finally:
+        db.close()
+
+    # Create sensors in the Admin's company
+    _, online_sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    _, offline_sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    create_test_sensor(
+        data["company1_factory_id"],
+        is_active=False
+    )
+
+    create_test_sensor(inactive_factory_id)
+
+    # Create a sensor in another company
+    create_test_sensor(data["company2_factory_id"])
+
+    # Set sensor timestamps
+    db = TestingSessionLocal()
+
+    try:
+        online_sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == online_sensor_id
+        ).first()
+
+        offline_sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == offline_sensor_id
+        ).first()
+
+        online_sensor.last_seen = datetime.now(timezone.utc)
+
+        offline_sensor.last_seen = (
+            datetime.now(timezone.utc) - timedelta(minutes=10)
+        )
+
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        "/sensors/dashboard/factories",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    results = response.json()
+
+    factories = {
+        item["factory_id"]: item
+        for item in results
+    }
+
+    # Admin can see the factories belonging to their company
+    assert data["company1_factory_id"] in factories
+    assert inactive_factory_id in factories
+    assert empty_factory_id in factories
+
+    # Admin cannot see another company's factory
+    assert data["company2_factory_id"] not in factories
+
+    main_factory = factories[data["company1_factory_id"]]
+
+    assert main_factory["total_sensors"] == 3
+    assert main_factory["online_sensors"] == 1
+    assert main_factory["offline_sensors"] == 1
+    assert main_factory["inactive_sensors"] == 1
+
+    inactive_factory_result = factories[inactive_factory_id]
+
+    assert inactive_factory_result["factory_is_active"] is False
+    assert inactive_factory_result["total_sensors"] == 1
+    assert inactive_factory_result["inactive_sensors"] == 1
+
+    empty_factory_result = factories[empty_factory_id]
+
+    assert empty_factory_result["total_sensors"] == 0
+    assert empty_factory_result["online_sensors"] == 0
+    assert empty_factory_result["offline_sensors"] == 0
+    assert empty_factory_result["inactive_sensors"] == 0
+
+
+def test_super_admin_can_view_all_companies_factory_sensor_dashboard(test_environment):
+    client, data = test_environment
+
+    create_test_sensor(data["company1_factory_id"])
+    create_test_sensor(data["company2_factory_id"])
+
+    response = client.get(
+        "/sensors/dashboard/factories",
+        headers=make_headers(data["super_admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    results = response.json()
+
+    factories = {
+        item["factory_id"]: item
+        for item in results
+    }
+
+    assert data["company1_factory_id"] in factories
+    assert data["company2_factory_id"] in factories
+
+    assert factories[data["company1_factory_id"]]["total_sensors"] == 1
+    assert factories[data["company2_factory_id"]]["total_sensors"] == 1
+
+
+def test_analyst_cannot_view_factory_sensor_dashboard(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        "/sensors/dashboard/factories",
+        headers=make_headers(data["analyst_id"])
+    )
+
+    assert response.status_code == 403
+
+
+def test_factory_sensor_dashboard_requires_authentication(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        "/sensors/dashboard/factories"
+    )
+
+    assert response.status_code == 401

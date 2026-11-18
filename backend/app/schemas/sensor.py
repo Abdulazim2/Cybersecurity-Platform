@@ -96,3 +96,16 @@ class SensorDashboardSummaryResponse(BaseModel):
     online_sensors: int
     offline_sensors: int
     inactive_sensors: int
+
+
+class FactorySensorDashboardResponse(BaseModel):
+    factory_id: int
+    factory_name: str
+    factory_location: str | None = None
+    company_id: int
+    factory_is_active: bool
+
+    total_sensors: int
+    online_sensors: int
+    offline_sensors: int
+    inactive_sensors: int
