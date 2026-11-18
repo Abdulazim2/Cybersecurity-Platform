@@ -314,3 +314,75 @@ def list_sensors(
         )
 
     return results
+
+# ==========================================
+# Get sensor details
+# ==========================================
+
+@router.get(
+    "/{sensor_id}",
+    response_model=SensorListResponse
+)
+def get_sensor_details(
+    sensor_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("Admin"))
+):
+    # Find sensor together with its factory status
+    sensor_record = db.query(
+        FactorySensor,
+        Factory.is_active
+    ).join(
+        Factory,
+        Factory.id == FactorySensor.factory_id
+    ).filter(
+        FactorySensor.id == sensor_id
+    )
+
+    # Restrict regular admins to their own company
+    if not is_super_admin(current_user, db):
+        sensor_record = sensor_record.filter(
+            Factory.company_id == current_user.company_id
+        )
+
+    result = sensor_record.first()
+
+    # Do not reveal sensors belonging to other companies
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sensor not found"
+        )
+
+    sensor, factory_is_active = result
+
+    # Determine current sensor status
+    now = datetime.now(timezone.utc)
+    online_threshold = now - timedelta(minutes=5)
+
+    if not sensor.is_active or not factory_is_active:
+        sensor_status = "Inactive"
+
+    elif sensor.last_seen is None:
+        sensor_status = "Offline"
+
+    else:
+        last_seen = sensor.last_seen
+
+        if last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+        if last_seen >= online_threshold:
+            sensor_status = "Online"
+        else:
+            sensor_status = "Offline"
+
+    return SensorListResponse(
+        id=sensor.id,
+        name=sensor.name,
+        factory_id=sensor.factory_id,
+        is_active=sensor.is_active,
+        last_seen=sensor.last_seen,
+        created_at=sensor.created_at,
+        status=sensor_status
+    )

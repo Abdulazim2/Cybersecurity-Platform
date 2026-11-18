@@ -3096,3 +3096,74 @@ def test_sensor_list_returns_inactive_when_factory_is_inactive(test_environment)
     }
 
     assert sensors[sensor_id]["status"] == "Inactive"
+
+# ==========================================
+# Factory Sensor Details Tests
+# ==========================================
+
+def test_sensor_details_admin_can_view_own_company_sensor(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(data["company1_factory_id"])
+
+    response = client.get(
+        f"/sensors/{sensor_id}",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == sensor_id
+    assert response.json()["factory_id"] == data["company1_factory_id"]
+
+
+def test_sensor_details_admin_cannot_view_other_company_sensor(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(data["company2_factory_id"])
+
+    response = client.get(
+        f"/sensors/{sensor_id}",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Sensor not found"
+
+
+def test_sensor_details_super_admin_can_view_any_company_sensor(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(data["company1_factory_id"])
+
+    response = client.get(
+        f"/sensors/{sensor_id}",
+        headers=make_headers(data["super_admin_id"])
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == sensor_id
+
+
+def test_sensor_details_rejects_analyst(test_environment):
+    client, data = test_environment
+
+    _, sensor_id = create_test_sensor(data["company1_factory_id"])
+
+    response = client.get(
+        f"/sensors/{sensor_id}",
+        headers=make_headers(data["analyst_id"])
+    )
+
+    assert response.status_code == 403
+
+
+def test_sensor_details_returns_404_for_nonexistent_sensor(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        "/sensors/999999",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Sensor not found"
