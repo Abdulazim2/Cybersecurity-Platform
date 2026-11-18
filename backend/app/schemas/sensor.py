@@ -89,3 +89,10 @@ class SensorListResponse(BaseModel):
 
 class SensorStatusUpdate(BaseModel):
     is_active: bool
+
+
+class SensorDashboardSummaryResponse(BaseModel):
+    total_sensors: int
+    online_sensors: int
+    offline_sensors: int
+    inactive_sensors: int

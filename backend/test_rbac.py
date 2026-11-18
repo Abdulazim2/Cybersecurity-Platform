@@ -3343,3 +3343,122 @@ def test_reactivated_sensor_can_use_same_token(test_environment):
     )
 
     assert heartbeat_response.status_code == 200
+
+def test_admin_can_view_own_company_sensor_dashboard_summary(test_environment):
+    client, data = test_environment
+
+    from datetime import datetime, timezone, timedelta
+
+    # Create a separate inactive factory for the fourth sensor
+    db = TestingSessionLocal()
+
+    try:
+        inactive_factory = Factory(
+            name="Inactive Factory",
+            location="Cairo",
+            company_id=data["company1_id"],
+            is_active=False
+        )
+
+        db.add(inactive_factory)
+        db.commit()
+        db.refresh(inactive_factory)
+
+        inactive_factory_id = inactive_factory.id
+
+    finally:
+        db.close()
+
+    # Create four sensors
+    _, online_sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    _, offline_sensor_id = create_test_sensor(
+        data["company1_factory_id"]
+    )
+
+    _, inactive_sensor_id = create_test_sensor(
+        data["company1_factory_id"],
+        is_active=False
+    )
+
+    _, inactive_factory_sensor_id = create_test_sensor(
+        inactive_factory_id
+    )
+    # Create a sensor for another company
+    create_test_sensor(data["company2_factory_id"])
+
+    # Set timestamps
+    db = TestingSessionLocal()
+
+    try:
+        online_sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == online_sensor_id
+        ).first()
+
+        offline_sensor = db.query(FactorySensor).filter(
+            FactorySensor.id == offline_sensor_id
+        ).first()
+
+        online_sensor.last_seen = datetime.now(timezone.utc)
+
+        offline_sensor.last_seen = (
+            datetime.now(timezone.utc) - timedelta(minutes=10)
+        )
+
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        "/sensors/dashboard/summary",
+        headers=make_headers(data["admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    result = response.json()
+
+    assert result["total_sensors"] == 4
+    assert result["online_sensors"] == 1
+    assert result["offline_sensors"] == 1
+    assert result["inactive_sensors"] == 2
+
+def test_super_admin_can_view_all_companies_sensor_dashboard_summary(test_environment):
+    client, data = test_environment
+
+    create_test_sensor(data["company1_factory_id"])
+    create_test_sensor(data["company2_factory_id"])
+
+    response = client.get(
+        "/sensors/dashboard/summary",
+        headers=make_headers(data["super_admin_id"])
+    )
+
+    assert response.status_code == 200
+
+    result = response.json()
+
+    assert result["total_sensors"] == 2
+    assert result["online_sensors"] == 0
+    assert result["offline_sensors"] == 2
+    assert result["inactive_sensors"] == 0
+def test_analyst_cannot_view_sensor_dashboard_summary(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        "/sensors/dashboard/summary",
+        headers=make_headers(data["analyst_id"])
+    )
+
+    assert response.status_code == 403
+def test_sensor_dashboard_summary_requires_authentication(test_environment):
+    client, data = test_environment
+
+    response = client.get(
+        "/sensors/dashboard/summary"
+    )
+
+    assert response.status_code == 401

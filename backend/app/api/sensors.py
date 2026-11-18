@@ -25,7 +25,8 @@ from app.schemas.sensor import (
     SensorRegistrationResponse,
     SensorNetworkEventCreate,
     SensorListResponse,
-    SensorStatusUpdate
+    SensorStatusUpdate,
+    SensorDashboardSummaryResponse
 )
 
 router = APIRouter(
@@ -241,6 +242,74 @@ def sensor_heartbeat(
         "factory_id": factory.id,
         "last_seen": sensor.last_seen
     }
+
+# ==========================================
+# Sensor Dashboard Summary
+# ==========================================
+
+@router.get(
+    "/dashboard/summary",
+    response_model=SensorDashboardSummaryResponse
+)
+def get_sensor_dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("Admin"))
+):
+    # Get sensors together with their factory status
+    sensors_query = db.query(
+        FactorySensor,
+        Factory.is_active
+    ).join(
+        Factory,
+        Factory.id == FactorySensor.factory_id
+    )
+
+    # Restrict regular admins to their own company
+    if not is_super_admin(current_user, db):
+        sensors_query = sensors_query.filter(
+            Factory.company_id == current_user.company_id
+        )
+
+    sensor_records = sensors_query.all()
+
+    now = datetime.now(timezone.utc)
+    online_threshold = now - timedelta(minutes=5)
+
+    # Initialize counters
+    total_sensors = len(sensor_records)
+    online_sensors = 0
+    offline_sensors = 0
+    inactive_sensors = 0
+
+    # Calculate sensor statuses
+    for sensor, factory_is_active in sensor_records:
+
+        if not sensor.is_active or not factory_is_active:
+            inactive_sensors += 1
+
+        elif sensor.last_seen is None:
+            offline_sensors += 1
+
+        else:
+            last_seen = sensor.last_seen
+
+            # Handle databases returning naive datetimes
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(
+                    tzinfo=timezone.utc
+                )
+
+            if last_seen >= online_threshold:
+                online_sensors += 1
+            else:
+                offline_sensors += 1
+
+    return SensorDashboardSummaryResponse(
+        total_sensors=total_sensors,
+        online_sensors=online_sensors,
+        offline_sensors=offline_sensors,
+        inactive_sensors=inactive_sensors
+    )
 
 # ==========================================
 # List factory sensors
